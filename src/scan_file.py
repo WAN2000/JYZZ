@@ -1,5 +1,3 @@
-from zoneinfo import reset_tzpath
-
 import chardet
 import csv
 import re

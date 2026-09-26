@@ -57,8 +57,8 @@ CITIES = [
     "吐鲁番市", "哈密市"
 ]
 
-KEYWORDS = ["城镇新增就业岗位", "城镇居民登记失业率","城镇新增就业", "城镇登记失业率", "城镇调查失业率","新增城镇就业", "新增就业岗位", "新增就业","登记失业率", "调查失业率",]
-
+KEYWORDS_1 = ["城镇新增就业岗位", "城镇居民登记失业率","城镇新增就业", "城镇登记失业率", "城镇调查失业率","新增城镇就业", "新增就业岗位", "新增就业","登记失业率", "调查失业率",]
+KEYWORDS_2 = ["就业补贴", "社保补贴", "就业培训", "职业技能培训", "职业培训", "创业担保贷款", "公益性岗位", "就业援助", "就业服务", "就业创业", "灵活就业", "零就业家庭", "就业困难人员"]
 
 def extract_hits(text, keywords):
     text = normalize(text)
@@ -72,8 +72,41 @@ def extract_hits(text, keywords):
             hits.append((matched, sentence))
     return hits
 
-def main():
+def add_hits(df,keywords,suffix):
     start_time = time.time()
+    raw_dir = Path(__file__).resolve().parent.parent / "data" / "Data_raw"
+
+    kw_col = []
+    stc_col = []
+
+    for _, row in df.iterrows():
+        fp = raw_dir / row["子目录"] / row["文件名"]
+        if not fp.exists():
+            kw_col.append("")
+            stc_col.append("")
+            continue
+
+        hits = extract_hits(read_text(fp), keywords)
+        if hits:
+            all_kws = sorted({k for ks,_ in hits for k in ks})
+            kw_col.append("、 ".join(all_kws))
+            stc_col.append("| ".join(h for _,h in hits))
+        else:
+            kw_col.append("")
+            stc_col.append("")
+
+    df[f"命中{suffix}"] = kw_col
+    df[f"命中{suffix}整句"] = stc_col
+    line_hit = f"命中{suffix}"
+    end_time = time.time()
+    process_time = end_time - start_time
+    print(f"解析关键词 {suffix}")
+    print(f"花费时间： {process_time:.2f} s")
+    print(f"关键词命中行数: {(df[line_hit]!="").sum()}")
+    return df
+
+
+def build_csv_rf():
     df_cities = df[df["城市"].isin(CITIES)]
     print(f"地级市数量： {len(df_cities)}")
     df_two = df[df["子目录"] == "two"]
@@ -86,38 +119,25 @@ def main():
     df_cha.to_csv(out_path_cha, index=False, encoding="utf-8-sig")
 
     out_path = Path(__file__).resolve().parent.parent / "data" / "out" / "粗筛.csv"
-    df_intersected = df_cities.merge(df_two,how="inner")
-    raw_dir = Path(__file__).resolve().parent.parent / "data" / "Data_raw"
+    df_intersected = df_cities.merge(df_two, how="inner")
+    return df_intersected
 
-    kw_col = []
-    stc_col = []
+def main():
+    rf_path = Path(__file__).resolve().parent.parent / "data" / "out" / "粗筛.csv"
+    out_path = Path(__file__).resolve().parent.parent / "data" / "out" / "kw_parsing.csv"
+    if not rf_path.exists():
+        print(f"初筛文件未找到： {rf_path}")
+        df_rf = build_csv_rf()
+        df_rf.to_csv(rf_path, index=False, encoding="utf-8-sig")
 
-    for _, row in df_intersected.iterrows():
-        fp = raw_dir / row["子目录"] / row["文件名"]
-        if not fp.exists():
-            kw_col.append("")
-            stc_col.append("")
-            continue
+    else:
+        print(f"初筛文件找到，进行关键词匹配")
+        df = pd.read_csv(rf_path, encoding="utf-8-sig")
+        df = add_hits(df,KEYWORDS_1,"就业增长")
+        df = add_hits(df,KEYWORDS_2,"就业力度")
+        df.to_csv(out_path, index=False, encoding="utf-8-sig")
 
-        hits = extract_hits(read_text(fp), KEYWORDS)
-        if hits:
-            all_kws = sorted({k for ks,_ in hits for k in ks})
-            kw_col.append("、 ".join(all_kws))
-            stc_col.append("| ".join(h for _,h in hits))
-        else:
-            kw_col.append("")
-            stc_col.append("")
 
-    df_intersected["命中关键词"] = kw_col
-    df_intersected["命中整句u"] = stc_col
-
-    #完成
-    hit_count  = (df_intersected["命中关键词"]!="").sum()
-    df_intersected.to_csv(out_path, index=False, encoding="utf-8-sig")
-    print(f"并集数量:  {len(df_intersected)}")
-    end_time = time.time()
-    process_time = end_time - start_time
-    print(f"花费时间：{process_time:.2f} s")
 
 # [读取] two：6581 个文件
 if __name__ == "__main__":
